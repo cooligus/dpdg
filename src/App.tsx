@@ -19,7 +19,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import { z } from "zod"
-import { useForm } from 'react-hook-form'
+import { useForm, SubmitHandler, useFieldArray } from 'react-hook-form'
 
 interface Character {
   name: string;
@@ -39,25 +39,46 @@ interface ScriptData {
   initialSpan: number;
 }
 
-// TODO: finish
 const FormSchema = z.object({
   users: z.array(z.object({
-    name: z.string(),
+    name: z.string().min(2, {
+      message: "Username must be at least 2 characters.",
+    }),
     scriptPrefix: z.string(),
     contentPrefix: z.string(),
-  })).min(2, {
-    message: "Username must be at least 2 characters.",
+  })).min(1, {
+    message: "There must be at least 2 users.",
   }),
+
+  dialogues: z.array(z.object({
+    userScriptPrefix: z.string(),
+    span: z.number().int().nonnegative(),
+    content: z.string(),
+  })).optional(),
 })
 
 const App = () => {
-  const [users, setUsers] = useState<Character[]>([
-    { name: 'Wieseik', scriptPrefix: 'W', contentPrefix: 'Wiesiek: ' }
-  ]);
-  const [dialogues, setDialogues] = useState<Dialog[]>([]);
+  const [dialogues, setDialogues] = useState<Dialog[]>([])
   const [finalScript, setFinalScript] = useState<string>('');
   const [rawScript, setRawScript] = useState<string>('');
   const [scriptData, setScriptData] = useState<ScriptData>({ name: '', initialCounter: 1, initialSpan: 10 });
+
+  const { register, handleSubmit, control, formState: { errors }, setValue } = useForm<z.infer<typeof FormSchema>>({
+    resolver: zodResolver(FormSchema),
+    defaultValues: {
+      users: [{ name: '', scriptPrefix: '', contentPrefix: '' }],
+      dialogues: [],
+    },
+  })
+
+  const {fields: dialoguesFields, append: appendDialogues } = useFieldArray({
+    control,
+    name: "dialogues",
+  })
+  const {fields: usersFields, append: appendUser } = useFieldArray({
+    control,
+    name: "users",
+  })
 
   const getSpanFromLine = (line: string): number => {
     const trimmedLine = line.trim();
@@ -68,7 +89,7 @@ const App = () => {
 
   const parseDialogueOnClick = () => {
     const parsedDialogues = parseDialogue(rawScript);
-    setDialogues(parsedDialogues);
+    setValue('dialogues', parsedDialogues);
   };
 
   const parseDialogue = (dialogueString: string): Dialog[] => {
@@ -84,7 +105,7 @@ const App = () => {
 
         const caseInsensitiveSpeaker = speaker.toLowerCase();
 
-        const user = users.find((user) => user.scriptPrefix.toLowerCase() === caseInsensitiveSpeaker);
+        const user = usersFields.find((user) => user.scriptPrefix.toLowerCase() === caseInsensitiveSpeaker);
         if (user) {
           dialogues.push({ user, span, content });
         } else {
@@ -103,7 +124,7 @@ const App = () => {
   };
 
   const getUserFromUsername = (username: string): Character | undefined => {
-    return users.find((user) => user.name === username);
+    return usersFields.find((user) => user.name === username);
   };
 
   const getScriptIncrementer = (): string => {
@@ -140,50 +161,42 @@ const App = () => {
     const wholeScriptContent = initialScriptContent + realScriptContent + endingScriptContent;
     setFinalScript(wholeScriptContent);
   };
-  const onSubmit = (data: any) => {
-    console.log(data);
+
+  const onSubmit: SubmitHandler<z.infer<typeof FormSchema>> = (data) => {
+    // Handle form submission
   };
-  const form = useForm<z.infer<typeof FormSchema>>({
-    resolver: zodResolver(FormSchema),
-    defaultValues: {
-      username: "",
-    },
-  })
-  
+
   return (
     <>
-<Textarea className="min-h-[3em]" onChange={(e) => setRawScript(e.target.value)}/>
-<Button onClick={parseDialogueOnClick}>Import dialogues</Button>
+      <Textarea className="min-h-[3em]" onChange={(e) => setRawScript(e.target.value)} />
+      <Button onClick={parseDialogueOnClick}>Import dialogues</Button>
 
-<Input />
+      <Collapsible>
+        <CollapsibleTrigger>Users</CollapsibleTrigger>
+        <CollapsibleContent>
+        <form onSubmit={handleSubmit(onSubmit)}>
+          {usersFields.map((user, index) => (
+			      <div className="flex flex-row" key={index}>
+			      	<Input {...register(`users.${index}.name`)} />
+			      	<Input {...register(`users.${index}.scriptPrefix`)} />
+			      	<Input {...register(`users.${index}.contentPrefix`)} />
+			      </div>
+          ))}
+		      <Button onClick={() => appendUser({ name: '', scriptPrefix: '', contentPrefix: '' })}>New user</Button>
+        </form>
+        </CollapsibleContent>
+      </Collapsible>
 
-<Collapsible>
-	<CollapsibleTrigger>Users</CollapsibleTrigger>
-	<CollapsibleContent>
-    {users.map((user, index) => (
-			<div className="flex flex-row" key={index}>
-				<Input value={user.name} onChange={(e) => users[index].name = e.target.value}/>
-				<Input value={user.scriptPrefix} onChange={(e) => users[index].scriptPrefix = e.target.value}/>
-				<Input value={user.contentPrefix} onChange={(e) => users[index].contentPrefix = e.target.value} />
-			</div>
-    ))}
-		<Button
-			onClick={() =>
-        setUsers((prevUsers) => [...prevUsers, { name: '', scriptPrefix: '', contentPrefix: '' }])}
-			>New user</Button>
-	</CollapsibleContent>
-</Collapsible>
+      {dialoguesFields.map((dialogue, index) => (<div key={index}>
+      	<Input {...register(`dialogues.${index}.content`)} value={dialogue.content} />
+      	<div className="flex flex-row">
+      		{dialogue.user.name}
+      		<Input type="number" className="w-[7em]" {...register(`dialogues.${index}.span`)} value={dialogue.span / 20} onChange={(e) => setValue(`dialogues.${index}.span`, e.target.valueAsNumber * 20)}/>
+      		<Input type="number" className="w-[7em]" {...register(`dialogues.${index}.span`)} value={dialogue.span} onChange={(e) => setValue(`dialogues.${index}.span`, e.target.valueAsNumber)}/>
+      	</div>
+      </div>))}
 
-{dialogues.map((dialogue, index) => (<div key={index}>
-	<Input value={dialogue.content} />
-	<div className="flex flex-row">
-		{dialogue.user.name}
-		<Input type="number" className="w-[7em]" value={dialogue.span / 20} onChange={(e) => dialogues[index].span = e.target.valueAsNumber * 20}/>
-		<Input type="number" className="w-[7em]" value={dialogue.span} onChange={(e) => dialogues[index].span = e.target.valueAsNumber}/>
-	</div>
-</div>))}
-
-{users.map((user, index) => (
+{usersFields.map((user, index) => (
 	<Button key={index} onClick={() => addDialogue(user.name)}>+ {user.name}</Button>
 ))}
 <Button onClick={generateDialogues}>Generate dialogues</Button>
